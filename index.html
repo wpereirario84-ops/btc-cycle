@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitcoin Cycle Analysis</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; color: #1f2937; padding: 16px; }
+  .container { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: 4px; }
+  h2 { font-size: 1.25rem; margin: 24px 0 4px; }
+  .muted { color: #9ca3af; font-size: 0.75rem; }
+  .sub { color: #6b7280; font-size: 0.9rem; }
+  .price { color: #ea580c; font-weight: bold; font-size: 1.3rem; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 16px; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { background: #f3f4f6; color: #6b7280; text-align: left; padding: 8px; }
+  td { padding: 8px; border-top: 1px solid #f3f4f6; }
+  .right { text-align: right; }
+  .badge { padding: 2px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
+  .badge.top { background: #fee2e2; color: #b91c1c; }
+  .badge.bottom { background: #dcfce7; color: #15803d; }
+  .pos { color: #16a34a; } .neg { color: #dc2626; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+  .stat-num { font-size: 1.6rem; font-weight: bold; }
+  .thermo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
+  .thermo h3 { font-size: 0.9rem; }
+  .thermo .desc { color: #9ca3af; font-size: 0.72rem; margin-bottom: 10px; }
+  .scale { position: relative; height: 22px; border-radius: 999px; overflow: hidden; border: 1px solid #d1d5db; display: flex; }
+  .z-green { background: #86efac; width: 20%; }
+  .z-yellow { background: #fef08a; width: 60%; }
+  .z-red { background: #fca5a5; width: 20%; }
+  .needle { position: absolute; top: 0; height: 100%; width: 5px; border-radius: 2px; }
+  .n-green { background: #15803d; } .n-yellow { background: #ca8a04; } .n-red { background: #b91c1c; }
+  .scale-labels { display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af; margin-top: 4px; }
+  .thermo-value { text-align: center; margin-top: 6px; font-size: 1.1rem; font-weight: bold; }
+  .zone-tag { font-size: 0.7rem; font-weight: bold; margin-left: 6px; }
+  .t-green { color: #15803d; } .t-yellow { color: #ca8a04; } .t-red { color: #b91c1c; }
+  #loading, #error { text-align: center; padding: 60px 20px; }
+  .spinner { width: 36px; height: 36px; border: 4px solid #e5e7eb; border-top-color: #ea580c; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #error { display: none; }
+  #error button { background: #ea580c; color: #fff; border: none; padding: 10px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 12px; }
+  #dashboard { display: none; }
+  .note { background: #eff6ff; border-left: 4px solid #60a5fa; padding: 10px 14px; border-radius: 6px; font-size: 0.78rem; color: #4b5563; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <h2>Loading Bitcoin Data</h2>
+    <p class="sub" id="progress">Starting...</p>
+  </div>
+
+  <div id="error">
+    <h2 style="color:#dc2626">⚠️ Could not load data</h2>
+    <p class="sub" id="error-msg"></p>
+    <button onclick="loadData()">Retry</button>
+  </div>
+
+  <div id="dashboard">
+    <h1>₿ Bitcoin Cycle Analysis</h1>
+    <p class="sub">Current Price: <span class="price" id="current-price"></span></p>
+    <p class="muted" id="fetched-at"></p>
+
+    <h2>Cycle Tops &amp; Bottoms</h2>
+    <p class="muted">Major cycles embedded as fixed history · recent points detected from live data (last 365 days)</p>
+    <div class="card" style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Date</th><th>Type</th><th class="right">Price (USD)</th><th class="right">% Change</th><th class="right">Leg</th></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <div class="note" id="candidate" style="display:none"></div>
+
+    <div class="stat-grid">
+      <div class="card">
+        <p class="muted">Historical avg · Peak → Bottom</p>
+        <p class="stat-num" id="avg-ptb"></p>
+        <p class="muted" id="range-ptb"></p>
+      </div>
+      <div class="card">
+        <p class="muted">Historical avg · Bottom → Peak</p>
+        <p class="stat-num" id="avg-btp"></p>
+        <p class="muted" id="range-btp"></p>
+      </div>
+    </div>
+
+    <h2>Market Indicators</h2>
+    <div class="thermo-grid" id="thermometers"></div>
+
+    <div class="note">
+      <strong>Note:</strong> Historical cycle tops/bottoms are embedded as fixed data. Live data (last 365 days — the
+      maximum allowed on CoinGecko's free API) provides the current price, recent extremes, and indicator values.
+      MVRV, Puell, and Reserve Risk are price-based approximations; true on-chain versions require a paid provider
+      (e.g. Glassnode). Refresh weekly after Sunday 6 PM CT for updated data.
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// EMBEDDED HISTORICAL DATA — major Bitcoin cycle tops & bottoms
+// ============================================================
+const HISTORICAL_CYCLES = [
+  { date: '2011-06-08', price: 31.91, type: 'top' },
+  { date: '2011-11-18', price: 2.01, type: 'bottom' },
+  { date: '2013-11-30', price: 1163, type: 'top' },
+  { date: '2015-01-14', price: 152, type: 'bottom' },
+  { date: '2017-12-17', price: 19666, type: 'top' },
+  { date: '2018-12-15', price: 3122, type: 'bottom' },
+  { date: '2021-11-10', price: 69000, type: 'top' },
+  { date: '2022-11-21', price: 15476, type: 'bottom' },
+  { date: '2025-10-06', price: 126080, type: 'top' },
+].map(c => ({ ...c, date: new Date(c.date + 'T00:00:00Z') }));
+
+const RANGES = {
+  piCycleTop:    { min: 0.70, max: 2.10 },
+  mvrvRatio:     { min: 0.95, max: 3.70 },
+  fearGreed:     { min: 30,   max: 85   },
+  puellMultiple: { min: 0.65, max: 4.20 },
+  reserveRisk:   { min: 0.20, max: 0.75 },
+};
+
+const DAY_MS = 86400000;
+
+// ---------------- Pure calculation functions ----------------
+function computeCycleStats(cycles) {
+  const ptb = [], btp = [];
+  for (let i = 1; i < cycles.length; i++) {
+    const days = Math.round((cycles[i].date - cycles[i-1].date) / DAY_MS);
+    if (cycles[i-1].type === 'top' && cycles[i].type === 'bottom') ptb.push(days);
+    else if (cycles[i-1].type === 'bottom' && cycles[i].type === 'top') btp.push(days);
+  }
+  const avg = a => Math.round(a.reduce((x,y) => x+y, 0) / a.length);
+  return {
+    avgTopToBottom: avg(ptb), minTopToBottom: Math.min(...ptb), maxTopToBottom: Math.max(...ptb),
+    avgBottomToTop: avg(btp), minBottomToTop: Math.min(...btp), maxBottomToTop: Math.max(...btp),
+  };
+}
+
+// A cycle pivot is a rare, structural event — not a local wiggle. Local
+// minima/maxima over a short window produce dozens of false pivots per year,
+// so we do NOT add them to the table. Instead we track a single CANDIDATE
+// bottom (the lowest price since the last confirmed peak) and only promote it
+// to a confirmed cycle bottom once it clears the rules below.
+const CONFIRM_RALLY = 1.50;   // price must rally +50% off the low
+const CONFIRM_AGE_DAYS = 90;  // and the low must be at least 90 days old
+
+function findCandidateBottom(prices, lastPeak) {
+  const since = prices.filter(p => p.date > lastPeak.date);
+  if (!since.length) return null;
+  let low = since[0];
+  for (const p of since) if (p.price < low.price) low = p;
+
+  const current = prices[prices.length - 1];
+  const rallyMult = current.price / low.price;
+  const ageDays = Math.round((current.date - low.date) / DAY_MS);
+  const confirmed = rallyMult >= CONFIRM_RALLY && ageDays >= CONFIRM_AGE_DAYS;
+
+  return {
+    date: low.date,
+    price: low.price,
+    type: 'bottom',
+    confirmed,
+    rallyPct: (rallyMult - 1) * 100,
+    ageDays,
+    windowStart: since[0].date,
+  };
+}
+
+function calcMA(prices, period) {
+  if (prices.length < period) return null;
+  const s = prices.slice(-period);
+  return s.reduce((a, p) => a + p.price, 0) / s.length;
+}
+function calcPiCycle(prices) {
+  const ma111 = calcMA(prices, 111), ma350 = calcMA(prices, 350);
+  return (ma111 && ma350) ? ma111 / ma350 : null;   // top signal fires at ratio ≥ 2.0
+}
+function calcMVRVApprox(prices) {
+  const ma = calcMA(prices, 155);
+  if (!ma) return null;
+  return Math.max(0.5, Math.min(5, prices[prices.length-1].price / ma));
+}
+function calcPuellApprox(prices) {
+  const ma = calcMA(prices, 365);
+  if (!ma) return null;
+  return Math.max(0.3, Math.min(5, prices[prices.length-1].price / ma));
+}
+function calcReserveRiskApprox(prices) {
+  const vals = prices.map(p => p.price);
+  const max = Math.max(...vals), min = Math.min(...vals);
+  if (max === min) return 0.5;
+  return Math.max(0, Math.min(1, (prices[prices.length-1].price - min) / (max - min)));
+}
+
+function processData(prices) {
+  const currentPrice = prices[prices.length - 1].price;
+  const now = prices[prices.length - 1].date;
+
+  const curatedPeaks = HISTORICAL_CYCLES.filter(p => p.type === 'top');
+  const lastCuratedPeak = curatedPeaks[curatedPeaks.length - 1];
+
+  const candidate = findCandidateBottom(prices, lastCuratedPeak);
+
+  // Only a CONFIRMED pivot may enter the table. Everything else stays curated.
+  const all = [...HISTORICAL_CYCLES];
+  if (candidate && candidate.confirmed) all.push(candidate);
+  all.sort((a, b) => a.date - b.date);
+
+  const tableRows = all.map((item, i) => ({
+    ...item,
+    percentChange: i > 0 ? ((item.price - all[i-1].price) / all[i-1].price) * 100 : null,
+    durationDays: i > 0 ? Math.round((item.date - all[i-1].date) / DAY_MS) : null,
+  }));
+
+  const peaks = all.filter(p => p.type === 'top');
+  const bottoms = all.filter(p => p.type === 'bottom');
+  const lastPeak = peaks[peaks.length - 1];
+  const lastBottom = bottoms[bottoms.length - 1];
+
+  return {
+    currentPrice, tableRows, lastPeak, lastBottom, candidate,
+    drawdownFromPeak: (currentPrice - lastPeak.price) / lastPeak.price * 100,
+    indicators: {
+      piCycleTop:    calcPiCycle(prices),
+      mvrvRatio:     calcMVRVApprox(prices),
+      puellMultiple: calcPuellApprox(prices),
+      reserveRisk:   calcReserveRiskApprox(prices),
+      daysSincePeak:   Math.round((now - lastPeak.date) / DAY_MS),
+      daysSinceBottom: Math.round((now - lastBottom.date) / DAY_MS),
+    },
+  };
+}
+
+// ---------------- UI ----------------
+function zoneOf(v, min, max) {
+  const r = max - min;
+  if (v <= min + r * 0.2) return 'green';
+  if (v >= max - r * 0.2) return 'red';
+  return 'yellow';
+}
+function posPct(v, min, max) {
+  if (max === min) return 50;
+  return Math.max(0, Math.min(100, (v - min) / (max - min) * 100));
+}
+function thermoHTML(title, desc, value, min, max, unit, decimals) {
+  if (value === null || value === undefined || isNaN(value)) {
+    return `<div class="card thermo"><h3>${title}</h3><p class="desc">${desc}</p>
+      <p style="text-align:center;color:#9ca3af;padding:16px 0">Data unavailable</p></div>`;
+  }
+  const zone = zoneOf(value, min, max);
+  const pos = posPct(value, min, max);
+  const zoneText = { green: 'LOW', yellow: 'MID', red: 'HIGH' }[zone];
+  return `<div class="card thermo">
+    <h3>${title}</h3><p class="desc">${desc}</p>
+    <div class="scale">
+      <div class="z-green"></div><div class="z-yellow"></div><div class="z-red"></div>
+      <div class="needle n-${zone}" style="left:calc(${pos}% - 2px)"></div>
+    </div>
+    <div class="scale-labels"><span>${min.toFixed(decimals)}</span><span>${max.toFixed(decimals)}</span></div>
+    <div class="thermo-value">${value.toFixed(decimals)}${unit ? ' ' + unit : ''}<span class="zone-tag t-${zone}">${zoneText}</span></div>
+    ${value < min ? '<p class="muted" style="text-align:center">below historical range</p>' : ''}
+    ${value > max ? '<p class="muted" style="text-align:center">above historical range</p>' : ''}
+  </div>`;
+}
+
+function render(result, cycleStats) {
+  document.getElementById('current-price').textContent =
+    '$' + result.currentPrice.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  document.getElementById('fetched-at').textContent =
+    'Fetched ' + new Date().toLocaleString() + ' · Refresh weekly after Sunday 6 PM CT';
+
+  document.getElementById('table-body').innerHTML = result.tableRows.map(r => `
+    <tr>
+      <td>${r.date.toLocaleDateString()}</td>
+      <td><span class="badge ${r.type}">${r.type === 'top' ? '▲ Top' : '▼ Bottom'}</span></td>
+      <td class="right"><strong>$${r.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></td>
+      <td class="right">${r.percentChange === null ? '<span class="muted">—</span>' :
+        `<span class="${r.percentChange >= 0 ? 'pos' : 'neg'}">${r.percentChange >= 0 ? '+' : ''}${r.percentChange.toFixed(1)}%</span>`}</td>
+      <td class="right muted">${r.durationDays === null ? '—' : r.durationDays + 'd'}</td>
+    </tr>`).join('');
+
+  const c = result.candidate;
+  const cEl = document.getElementById('candidate');
+  if (c && !c.confirmed) {
+    cEl.innerHTML = `<strong>Unconfirmed candidate bottom:</strong>
+      $${c.price.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+      on ${c.date.toLocaleDateString()} — the lowest price since the last confirmed peak.
+      Not added to the table above. Confirmation requires a rally of +${((CONFIRM_RALLY-1)*100).toFixed(0)}%
+      off the low (currently ${c.rallyPct >= 0 ? '+' : ''}${c.rallyPct.toFixed(1)}%)
+      and an age of ${CONFIRM_AGE_DAYS} days (currently ${c.ageDays}).`;
+    cEl.style.display = 'block';
+  } else {
+    cEl.style.display = 'none';
+  }
+
+  const cs = cycleStats;
+  document.getElementById('avg-ptb').textContent = cs.avgTopToBottom + ' days';
+  document.getElementById('range-ptb').textContent = `Range observed: ${cs.minTopToBottom}–${cs.maxTopToBottom} days`;
+  document.getElementById('avg-btp').textContent = cs.avgBottomToTop + ' days';
+  document.getElementById('range-btp').textContent = `Range observed: ${cs.minBottomToTop}–${cs.maxBottomToTop} days`;
+
+  const ind = result.indicators;
+  document.getElementById('thermometers').innerHTML = [
+    thermoHTML('Pi Cycle Top', '111DMA ÷ 350DMA — top signal at 2.0', ind.piCycleTop, RANGES.piCycleTop.min, RANGES.piCycleTop.max, '', 2),
+    thermoHTML('MVRV Ratio (approx.)', 'Price vs 155-day MA proxy', ind.mvrvRatio, RANGES.mvrvRatio.min, RANGES.mvrvRatio.max, '', 2),
+    thermoHTML('Fear & Greed', 'alternative.me sentiment index', ind.fearGreed, RANGES.fearGreed.min, RANGES.fearGreed.max, 'pts', 0),
+    thermoHTML('Puell Multiple (approx.)', 'Price vs 365-day MA proxy', ind.puellMultiple, RANGES.puellMultiple.min, RANGES.puellMultiple.max, '', 2),
+    thermoHTML('Reserve Risk (approx.)', 'Price position in 365-day range', ind.reserveRisk, RANGES.reserveRisk.min, RANGES.reserveRisk.max, '', 2),
+    thermoHTML('Days Since Last Peak', `Last peak: ${result.lastPeak.date.toLocaleDateString()} · avg decline ${cs.avgTopToBottom}d`, ind.daysSincePeak, 0, cs.maxTopToBottom, 'days', 0),
+    thermoHTML('Days Since Last Bottom', `Last bottom: ${result.lastBottom.date.toLocaleDateString()} · avg recovery ${cs.avgBottomToTop}d`, ind.daysSinceBottom, 0, cs.maxBottomToTop, 'days', 0),
+  ].join('');
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('error').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+}
+
+// ---------------- Data loading ----------------
+async function loadData() {
+  const loading = document.getElementById('loading');
+  const errorEl = document.getElementById('error');
+  const progress = document.getElementById('progress');
+  loading.style.display = 'block';
+  errorEl.style.display = 'none';
+  document.getElementById('dashboard').style.display = 'none';
+
+  try {
+    progress.textContent = 'Fetching last 365 days of BTC prices...';
+    const res = await fetch('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=365');
+    if (!res.ok) throw new Error(`CoinGecko API returned HTTP ${res.status}. If 429, you are rate-limited — wait 1 minute and retry.`);
+    const json = await res.json();
+    if (!json.prices || json.prices.length < 350) throw new Error('Incomplete price data received.');
+
+    const prices = json.prices.map(([t, p]) => ({ date: new Date(t), price: +p })).filter(p => p.price > 0);
+
+    progress.textContent = 'Calculating indicators...';
+    const result = processData(prices);
+    const cycleStats = computeCycleStats(HISTORICAL_CYCLES);
+
+    // Fear & Greed (optional — dashboard still renders if it fails)
+    progress.textContent = 'Fetching Fear & Greed index...';
+    try {
+      const fg = await fetch('https://api.alternative.me/fng/?limit=1');
+      if (fg.ok) {
+        const fgJson = await fg.json();
+        const v = parseInt(fgJson?.data?.[0]?.value);
+        if (!isNaN(v)) result.indicators.fearGreed = v;
+      }
+    } catch (e) { console.warn('Fear & Greed unavailable:', e); }
+
+    render(result, cycleStats);
+  } catch (err) {
+    console.error(err);
+    loading.style.display = 'none';
+    document.getElementById('error-msg').textContent = err.message;
+    errorEl.style.display = 'block';
+  }
+}
+
+loadData();
+</script>
+</body>
+</html>
