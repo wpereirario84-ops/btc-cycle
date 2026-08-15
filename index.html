@@ -315,13 +315,19 @@ function render(result, cycleStats) {
   document.getElementById('range-btp').textContent = `Range observed: ${cs.minBottomToTop}–${cs.maxBottomToTop} days`;
 
   const ind = result.indicators;
+  // Count DOWN to the projected bottom (peak + historical average bear length).
+  // Low value = close to the projected bottom = green = accumulation zone.
+  const daysToBottom = cs.avgTopToBottom - ind.daysSincePeak;
+  const bottomDesc = daysToBottom >= 0
+    ? `Peak ${result.lastPeak.date.toLocaleDateString()} + ${cs.avgTopToBottom}d avg · ${ind.daysSincePeak}d elapsed`
+    : `Peak ${result.lastPeak.date.toLocaleDateString()} · ${Math.abs(daysToBottom)}d past the ${cs.avgTopToBottom}d average`;
   document.getElementById('thermometers').innerHTML = [
     thermoHTML('Pi Cycle Top', '111DMA ÷ 350DMA — top signal at 2.0', ind.piCycleTop, RANGES.piCycleTop.min, RANGES.piCycleTop.max, '', 2),
     thermoHTML('MVRV Ratio (approx.)', 'Price vs 155-day MA proxy', ind.mvrvRatio, RANGES.mvrvRatio.min, RANGES.mvrvRatio.max, '', 2),
     thermoHTML('Fear & Greed', 'alternative.me sentiment index', ind.fearGreed, RANGES.fearGreed.min, RANGES.fearGreed.max, 'pts', 0),
     thermoHTML('Puell Multiple (approx.)', 'Price vs 365-day MA proxy', ind.puellMultiple, RANGES.puellMultiple.min, RANGES.puellMultiple.max, '', 2),
     thermoHTML('Reserve Risk (approx.)', 'Price position in 365-day range', ind.reserveRisk, RANGES.reserveRisk.min, RANGES.reserveRisk.max, '', 2),
-    thermoHTML('Days Since Last Peak', `Last peak: ${result.lastPeak.date.toLocaleDateString()} · avg decline ${cs.avgTopToBottom}d`, ind.daysSincePeak, 0, cs.maxTopToBottom, 'days', 0),
+    thermoHTML('Days to Projected Bottom', bottomDesc, Math.max(0, daysToBottom), 0, cs.maxTopToBottom, 'days', 0),
     thermoHTML('Days Since Last Bottom', `Last bottom: ${result.lastBottom.date.toLocaleDateString()} · avg recovery ${cs.avgBottomToTop}d`, ind.daysSinceBottom, 0, cs.maxBottomToTop, 'days', 0),
   ].join('');
 
